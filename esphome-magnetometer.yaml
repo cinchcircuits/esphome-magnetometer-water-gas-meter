@@ -561,7 +561,7 @@ sensor:
   - platform: template
     id: ${prefix_id}sensor_flow_cost
     name: ${prefix_name}Cost
-    icon: mdi:currencyusd
+    icon: mdi:currency-usd
     lambda: |-
       float flow = id(${prefix_id}half_rotations_flow) * id(${prefix_id}volume_per_half_rotation).state * 60.0 / ${flow_update_interval_seconds};
       float cost = flow * 60 * 0.000068l;
