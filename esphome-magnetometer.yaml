@@ -567,7 +567,7 @@ sensor:
       float cost = flow * 60 * 0.000068l;
       return cost;
     update_interval: ${flow_update_interval_seconds}s
-    accuracy_decimals: 4
+    accuracy_decimals: 5
     state_class: measurement
     unit_of_measurement: dollars/hr
     filters:
