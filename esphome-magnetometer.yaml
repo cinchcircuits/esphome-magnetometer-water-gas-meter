@@ -557,3 +557,19 @@ sensor:
       - or:
           - throttle: 60s
           - delta: 0
+
+  - platform: template
+    id: ${prefix_id}sensor_flow_cost
+    name: ${prefix_name}Cost
+    icon: mdi:currencyusd
+    lambda: |-
+      float cost = ${prefix_id}sensor_flow * 60 * 0.000068l
+      return cost;
+    update_interval: ${flow_update_interval_seconds}s
+    accuracy_decimals: 4
+    state_class: measurement
+    unit_of_measurement: dollars/hr
+    filters:
+      - or:
+          - throttle: 60s
+          - delta: 0
