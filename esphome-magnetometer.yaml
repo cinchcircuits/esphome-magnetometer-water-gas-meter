@@ -14,6 +14,8 @@ substitutions:
 
   i2c_scl: GPIO5  # D1
   i2c_sda: GPIO4  # D2
+  i2c_scan: false
+  i2c_address: 0x0D
 
   # Set these only if you have connected two QMC5883L to one device, see esphome-two-meters.yaml
   prefix_name: ''
@@ -33,6 +35,11 @@ substitutions:
   hide_magnetic_field_strength_sensors: 'true'
   hide_half_rotations_total_sensor: 'true'
 
+  # Override these to change the axis key names (e.g. for MLX90393: x_axis, y_axis, z_axis)
+  axis_x_key: 'field_strength_x'
+  axis_y_key: 'field_strength_y'
+  axis_z_key: 'field_strength_z'
+
   # Tuning parameters for the Min/Max Tracker algorithm:
   # Decay rate per tick (~5ms). Controls how fast the tracker follows thermal drift.
   # 0.0005 = ~6 µT/min. Increase if you see false triggers from temperature changes.
@@ -48,7 +55,7 @@ substitutions:
   max_span_multiplier: '1.2'
 
 esphome:
-  min_version: "2025.11.0"
+  min_version: "2026.1.0"
   # Default loop interval is 16ms. Setting it to 0 to make updates faster.
   # Without setting this, the actual update interval of qmc5883l is: 6ms on ESP32, 10ms on ESP8266.
   # With this, it's 5ms on ESP32, 8ms on ESP8266.
@@ -242,6 +249,14 @@ select:
     update_interval: never
     restore_value: true
     optimistic: true
+    on_value:
+      then:
+        - lambda: |-
+            if (x == "None") {
+              id(${prefix_id}calibration_status).publish_state("Not Calibrated");
+            } else if (!id(${prefix_id}calibrating)) {
+              id(${prefix_id}calibration_status).publish_state("Ready");
+            }
 
   - platform: template
     id: ${prefix_id}detection_algorithm
@@ -256,6 +271,14 @@ select:
     restore_value: true
     optimistic: true
 
+text_sensor:
+  - platform: template
+    id: ${prefix_id}calibration_status
+    name: ${prefix_name}Calibration Status
+    entity_category: diagnostic
+    icon: mdi:information-outline
+    update_interval: never
+
 button:
   - platform: template
     id: ${prefix_id}calibrate_button
@@ -265,6 +288,7 @@ button:
     on_press:
       - lambda: |-
           ESP_LOGI("calibration", "Starting calibration. Make sure ${device_class} is running");
+          id(${prefix_id}calibration_status).publish_state("Calibrating...");
           id(${prefix_id}calibrating_axis_x_min) = std::numeric_limits<float>::max();
           id(${prefix_id}calibrating_axis_x_max) = std::numeric_limits<float>::lowest();
           id(${prefix_id}calibrating_axis_y_min) = std::numeric_limits<float>::max();
@@ -318,6 +342,7 @@ button:
             max_range_found = z_range;
           } else {
             ESP_LOGE("${prefix_id}calibration", "Calibration failed. No axis had a range of at least %.0f", min_axis_range);
+            id(${prefix_id}calibration_status).publish_state("Failed: low signal");
             return;
           }
 
@@ -343,7 +368,7 @@ i2c:
     scl: ${i2c_scl}
     sda: ${i2c_sda}
     frequency: 50kHz
-    scan: false
+    scan: ${i2c_scan}
 
 sensor:
   # Holds the magnetic field strength value of x, y, or z depending on the axis template select.
@@ -354,7 +379,7 @@ sensor:
     on_value:
       then:
         - lambda: |-
-            if (strcmp("Adaptive", id(${prefix_id}detection_algorithm).current_option()) == 0) {
+            if (id(${prefix_id}detection_algorithm).current_option() == "Adaptive") {
               // === ADAPTIVE ALGORITHM: Min/Max Tracker with Range Clamping ===
 
               // 1. Initialize Trackers if empty (NAN on boot or after calibration)
@@ -427,8 +452,8 @@ sensor:
   - platform: qmc5883l
     id: ${prefix_id}qmc5883l_id
     i2c_id: ${prefix_id}i2c_bus
-    address: 0x0D
-    field_strength_x:
+    address: ${i2c_address}
+    ${axis_x_key}:
       id: ${prefix_id}qmc5883l_axis_x
       name: ${prefix_name}Magnetic Field Strength X
       internal: ${hide_magnetic_field_strength_sensors}
@@ -436,14 +461,14 @@ sensor:
       on_raw_value:
         then:
           - lambda: |-
-              if (strcmp("x", id(${prefix_id}axis).current_option()) == 0) id(${prefix_id}axis_value).publish_state(x);
+              if (id(${prefix_id}axis).current_option() == "x") id(${prefix_id}axis_value).publish_state(x);
               if (id(${prefix_id}calibrating)) {
                 id(${prefix_id}calibrating_axis_x_min) = min(id(${prefix_id}calibrating_axis_x_min), x);
                 id(${prefix_id}calibrating_axis_x_max) = max(id(${prefix_id}calibrating_axis_x_max), x);
               }
       filters:
         - delta: ${magnetic_field_update_delta}
-    field_strength_y:
+    ${axis_y_key}:
       id: ${prefix_id}qmc5883l_axis_y
       name: ${prefix_name}Magnetic Field Strength Y
       internal: ${hide_magnetic_field_strength_sensors}
@@ -451,14 +476,14 @@ sensor:
       on_raw_value:
         then:
           - lambda: |-
-              if (strcmp("y", id(${prefix_id}axis).current_option()) == 0) id(${prefix_id}axis_value).publish_state(x);
+              if (id(${prefix_id}axis).current_option() == "y") id(${prefix_id}axis_value).publish_state(x);
               if (id(${prefix_id}calibrating)) {
                 id(${prefix_id}calibrating_axis_y_min) = min(id(${prefix_id}calibrating_axis_y_min), x);
                 id(${prefix_id}calibrating_axis_y_max) = max(id(${prefix_id}calibrating_axis_y_max), x);
               }
       filters:
         - delta: ${magnetic_field_update_delta}
-    field_strength_z:
+    ${axis_z_key}:
       id: ${prefix_id}qmc5883l_axis_z
       name: ${prefix_name}Magnetic Field Strength Z
       internal: ${hide_magnetic_field_strength_sensors}
@@ -466,7 +491,7 @@ sensor:
       on_raw_value:
         then:
           - lambda: |-
-              if (strcmp("z", id(${prefix_id}axis).current_option()) == 0) id(${prefix_id}axis_value).publish_state(x);
+              if (id(${prefix_id}axis).current_option() == "z") id(${prefix_id}axis_value).publish_state(x);
               if (id(${prefix_id}calibrating)) {
                 id(${prefix_id}calibrating_axis_z_min) = min(id(${prefix_id}calibrating_axis_z_min), x);
                 id(${prefix_id}calibrating_axis_z_max) = max(id(${prefix_id}calibrating_axis_z_max), x);
@@ -544,6 +569,7 @@ sensor:
   - platform: template
     id: ${prefix_id}sensor_flow
     name: ${prefix_name}Flow
+    device_class: volume_flow_rate
     icon: mdi:speedometer
     lambda: |-
       float flow = id(${prefix_id}half_rotations_flow) * id(${prefix_id}volume_per_half_rotation).state * 60.0 / ${flow_update_interval_seconds};
@@ -556,21 +582,4 @@ sensor:
     filters:
       - or:
           - throttle: 60s
-          - delta: 0
-
-  - platform: template
-    id: ${prefix_id}sensor_flow_cost
-    name: ${prefix_name}Cost
-    icon: mdi:currency-usd
-    lambda: |-
-      float flow = id(${prefix_id}half_rotations_flow) * id(${prefix_id}volume_per_half_rotation).state * 60.0 / ${flow_update_interval_seconds};
-      float cost = flow * 60 * 0.000068l;
-      return cost;
-    update_interval: 30s
-    accuracy_decimals: 5
-    state_class: measurement
-    unit_of_measurement: dollars/hr
-    filters:
-      - or:
-          - throttle: 30s
           - delta: 0
